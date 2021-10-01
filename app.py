@@ -1,35 +1,39 @@
+from fastapi import FastAPI, Request, File, UploadFile, BackgroundTasks
+from fastapi.templating import Jinja2Templates
+import shutil
 import os
-from flask import Flask, request
-app = Flask(__name__)
 import requests
 
-UPLOAD_FOLDER = r'upload'
-app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app = FastAPI()
+templates = Jinja2Templates(directory="templates")
 
-@app.route('/', methods=['GET', 'POST'])
-def upload_file():
-    if request.method == 'POST':
-        if 'file1' not in request.files:
-            return 'there is no file1 in form!'
-        file1 = request.files['file1']
-        path = os.path.join(app.config['UPLOAD_FOLDER'], file1.filename)
-        file1.save(path)
-        print(path)
-        r = requests.post(
-            "https://api.deepai.org/api/colorizer",
-            files={
-                'image': open(path, 'rb'),
-            },
-            headers={'api-key': '3a1506b8-06bd-44a2-9bdf-305964d21330'}
-        )
+@app.get("/")
+def home(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
 
-        return r.json()
-    return '''
-    <h1>Upload new File</h1>
-    <form method="post" enctype="multipart/form-data">
-      <input type="file" name="file1">
-      <input type="submit">
-    </form>
-    '''
+@app.post("/api/v1/extract_text")
+async def extract_text(image: UploadFile = File(...)):
+    temp_file = _save_file_to_disk(image, path="temp", save_as="temp")
+    text = await colorize(temp_file)
+    return {"filename": image.filename, "text": text}
 
+
+def _save_file_to_disk(uploaded_file, path=".", save_as="default"):
+    extension = os.path.splitext(uploaded_file.filename)[-1]
+    temp_file = os.path.join(path, save_as + extension)
+    with open(temp_file, "wb") as buffer:
+        shutil.copyfileobj(uploaded_file.file, buffer)
+    return temp_file
+
+
+async def colorize(path):
+    r = requests.post(
+        "https://api.deepai.org/api/colorizer",
+        files={
+            'image': open(path, 'rb'),
+        },
+        headers={'api-key': '3a1506b8-06bd-44a2-9bdf-305964d21330'}
+    )
+
+    res = 'https:'+str(r.json()).split(':')[-1]
+    return res[:len(res)-2]
